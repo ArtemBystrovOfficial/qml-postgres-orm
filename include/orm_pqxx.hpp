@@ -50,6 +50,10 @@ public:
 
 	template<class T>
 	std::optional <T> specialSelect11(const std::string&, ExceptionHandler& eh);
+
+	template<class T>
+	std::optional <T> specialSelect1(const std::string&, ExceptionHandler& eh);
+
 private:
 	DataBaseAccess(const std::string& connection_query);
 //INSERT
@@ -218,6 +222,24 @@ inline std::optional <T> DataBaseAccess::specialSelect11(const std::string& quer
 	}
 	catch (const std::exception& exp) {
 		eh.what = std::format("special select: {}",exp.what());
+	}
+	catch (...) {}
+
+	eh.is_error_ = true;
+	return std::nullopt;
+}
+
+template<class T>
+inline std::optional <T> DataBaseAccess::specialSelect1(const std::string& query, ExceptionHandler& eh) {
+	try {
+		T t;
+		pqxx::work w(m_conn);
+		pqxx::row res = w.exec1(query);
+		res.to(t);
+		return t;
+	}
+	catch (const std::exception& exp) {
+		eh.what = std::format("special select: {}", exp.what());
 	}
 	catch (...) {}
 

@@ -36,9 +36,7 @@ Rectangle {
                         width: parent.width
                         height: taskHeight
                         color_scheme: {
-                            if(item.colorSchemeId === -1)
-                                return "#000000"
-                            return ColorSchemeModel.itemById(item.colorSchemeId).color
+                            return item.color_scheme.color
                         } 
                         header_title: {
                             var title = item.title
@@ -51,10 +49,15 @@ Rectangle {
                         onOpened: openTask(index)    
                         onDeleted: deletedTask(index)
                         onSetRandColor: {
-                            item.colorSchemeId = ColorSchemeModel.itemAt(
-                                Math.floor(Math.random()*ColorSchemeModel.rowCount()
-                            )).id
-                            TaskModel.CommitChanges()
+							item.color_scheme.color = "#558899"
+							//item.replaceByIdColorScheme(3)
+							//item.callNestedSignal()
+							TaskModel.CommitChanges() 
+							//TaskModel.replaceByIdColorScheme(5)
+                            //item.colorSchemeId = ColorSchemeModel.itemAt(
+                            //    Math.floor(Math.random()*ColorSchemeModel.rowCount()
+                            //)).id
+                            //TaskModel.CommitChanges()
                         }
                     }
                 }
