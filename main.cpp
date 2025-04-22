@@ -14,8 +14,12 @@ int main(int argc, char *argv[]) {
         "password=9000 "
         "dbname=task_app"
     );
-        
+
     QmlSingletonModels::Instanse();
+
+    DataBaseAccess::Instanse().SetSyncCallback([](std::string a1, std::string a2, std::string a3) {
+        QmlSingletonModels::Instanse().RouteSyncModels(a1, a2, a3);
+    });
 
     QQmlApplicationEngine engine;
     engine.load(QUrl(QStringLiteral("qrc:/MainWindow.qml")));

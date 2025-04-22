@@ -49,7 +49,10 @@ Rectangle {
                         onOpened: openTask(index)    
                         onDeleted: deletedTask(index)
                         onSetRandColor: {
-							item.color_scheme.color = "#558899"
+						    var hex = Math.floor(Math.random() * 0x1000000)
+								.toString(16)
+								.padStart(6, "0");
+							item.color_scheme.color = "#" + hex
 							//item.replaceByIdColorScheme(3)
 							//item.callNestedSignal()
 							TaskModel.CommitChanges() 

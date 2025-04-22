@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <functional>
 #include <tuple>
+#include <set>
 
 #define INT_NULL_PROPERTY(PROPERTY_NAME, INDEX_PROPERTY, DEFAULT)                                                \
     Q_PROPERTY(int PROPERTY_NAME READ PROPERTY_NAME WRITE set_##PROPERTY_NAME NOTIFY PROPERTY_NAME##Changed)     \
@@ -73,19 +74,23 @@ public:                                                                         
         std::get<INDEX_PROPERTY>(m_data.tp) = n;                                                                \
         syncAllNestedObjects();                                                                                 \
         m_to_update_.set(INDEX_PROPERTY);                                                                       \
+        notifyNestedObjectsChanged();                                                                           \
     }                                                                                                           \
 private:                                                                                                        \
     std::unique_ptr<PROPERTY_CLASS> ptr_##PROPERTY_NAME;                                                        \
 public:
 
-#define META_MODEL_QML_FUNCTIONS \
-public slots: \
-    Q_INVOKABLE QString Add(meta_type_t* obj = nullptr) { QString er = _add(obj); if(er.isEmpty()) emit updated(); return er; } \
+#define META_MODEL_QML_FUNCTIONS                                                                                                                                 \
+public slots:                                                                                                                                                    \
+    Q_INVOKABLE QString Add(meta_type_t* obj = nullptr) { QString er = _add(obj); if(er.isEmpty()) emit updated(); return er; }                                  \
     Q_INVOKABLE QString CommitChanges(bool is_not_update = false) { QString er = _update_all_to_bd(is_not_update); if(er.isEmpty()) emit updated(); return er; } \
-    Q_INVOKABLE QString Delete(int index) { QString er = _remove(index); if(er.isEmpty()) emit updated(); return er; } \
-    Q_INVOKABLE meta_type_t* itemAt(int index) { return item_at(index); } \
-    Q_INVOKABLE meta_type_t* itemById(int id) { return item_by_id(id); } \
-public: \
+    Q_INVOKABLE QString Delete(int index) { QString er = _remove(index); if(er.isEmpty()) emit updated(); return er; }                                           \
+    Q_INVOKABLE meta_type_t* itemAt(int index) { return item_at(index); }                                                                                        \
+    Q_INVOKABLE meta_type_t* itemById(int id) { return item_by_id(id); }                                                                                         \
+    Q_INVOKABLE void RouteSyncModels(const QString& table, const QString& action, const QString& id) {                                                           \
+        _RouteSyncModels(table, action, id);                                                                                                                     \
+    }                                                                                                                                                            \
+public:                                                                                                                                                          \
     Q_SIGNAL void updated(); 
 
 //#define META_MODEL_REGISTER(CHILD_NAME) \
@@ -117,6 +122,23 @@ public:
         }
     }
 
+    void updateChildByRule(size_t id, const std::string& str) {
+        nested_object_update_scope_.insert({ id,str });
+        syncAllNestedObjects();
+        notifyNestedObjectsChanged();
+    }
+
+    void notifyNestedObjectsChanged() {
+        const QMetaObject* mo = metaObject();
+        if (mo->indexOfSignal("nestedObjectsChanged()") != -1) {
+            QMetaObject::invokeMethod(
+                this,
+                "nestedObjectsChanged",
+                Qt::DirectConnection
+            );
+        }
+    }
+
     ~MetaQmlObject() {}
 protected:
     template<size_t N, typename T>
@@ -124,25 +146,33 @@ protected:
         //get
         nested_objects_func_update_.push_back([this, &value]() {
             size_t id = std::get<N>(m_data.tp);
-            DataBaseAccess::ExceptionHandler eh;
-            auto opt = DataBaseAccess::Instanse().specialSelect1<T::tuple_t::tuple_t>(
-                std::format("SELECT * FROM {} WHERE id = ",
-                    T::tuple_t::tuple_info_name()
-                ) + std::to_string(id), eh
-            );
-            if (eh || !opt.has_value()) {
-                value.reset(nullptr);
-            }
-            else {
-                auto new_object = std::make_unique<T>();
-                typename T::tuple_t tuple;
-                tuple.tp = *opt;
-                new_object->setData(tuple);
-                value = std::move(new_object);
+
+            auto it = nested_object_update_scope_.find({ id, T::tuple_t::tuple_info_name() });
+
+            if (nested_object_update_scope_.empty() or (!nested_object_update_scope_.empty() && it != nested_object_update_scope_.end())) {
+                DataBaseAccess::ExceptionHandler eh;
+                auto opt = DataBaseAccess::Instanse().specialSelect1<T::tuple_t::tuple_t>(
+                    std::format("SELECT * FROM {} WHERE id = ",
+                        T::tuple_t::tuple_info_name()
+                    ) + std::to_string(id), eh
+                    );
+                if (eh || !opt.has_value()) {
+                    value.reset(nullptr);
+                }
+                else {
+                    auto new_object = std::make_unique<T>();
+                    typename T::tuple_t tuple;
+                    tuple.tp = *opt;
+                    new_object->setData(tuple);
+                    value = std::move(new_object);
+                }
+                if(!nested_object_update_scope_.empty())
+                    nested_object_update_scope_.erase(it);
             }
         });
         //update to bd
         nested_objects_func_push_.push_back([this, &value]() {
+            size_t id = std::get<N>(m_data.tp);
             if (value->isSomeToUpdate()) {
                 DataBaseAccess::ExceptionHandler eh;
                 DataBaseAccess::Instanse().Update(value->getData(), value->unload(), eh);
@@ -155,6 +185,7 @@ protected:
 
     std::vector<std::function<void()>> nested_objects_func_update_;
     std::vector<std::function<void()>> nested_objects_func_push_;
+    std::set<std::pair<size_t, std::string>> nested_object_update_scope_;
 
     Tuple m_data;
     update_pool m_to_update_;
@@ -254,7 +285,29 @@ public:
          return roles;
      }
 
+//SYNC MERGED MODEL
+
+     void _RouteSyncModels(const QString& table, const QString& action, const QString& id_q) {
+         //now all model updated for test mode but you can make select_by_id()
+         auto id = std::stoll(id_q.toStdString());
+         auto item = item_by_id(id);
+         if (item && !item->isSomeToUpdate()) { // only for commited instances
+             select_model();
+             return;
+         }
+
+         for (auto& item : m_list) {
+             if (!item->isSomeToUpdate()) { // only for commited instances
+                 item->updateChildByRule(id, table.toStdString()); //update all depended childs
+             }
+         }
+     }
+
 protected:
+
+    void select_by_id(size_t id) {
+
+    }
 
     void select_model() {
         emit beginResetModel();
